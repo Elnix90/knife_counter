@@ -1,6 +1,8 @@
 import io
 import json
 import discord
+import re
+from datetime import datetime, timezone
 from discord.ext import commands
 from discord import app_commands
 from save_data import save_data
@@ -132,7 +134,7 @@ async def found(interaction: discord.Interaction, number: int):
     else:
         logger.warning(f"User {interaction.user} doesn't send the command in the right channel")
         await interaction.response.send_message(f"You don't send your command in the right channel, the right channel is <#{FOUND_CHANNEL_ID}>",ephemeral=True)
-
+    await backup(interaction)
 
 @bot.tree.command()
 @app_commands.checks.has_permissions(manage_messages=True)
@@ -153,17 +155,18 @@ async def clear(interaction: discord.Interaction, amount: int = None):
     except Exception as e:
         logger.error(f"Error in clear command: {str(e)}")
         await interaction.followup.send("An error occurred while trying to clear messages.", ephemeral=True)
+    await backup(interaction)
 
 
 @bot.tree.command()
-@app_commands.checks.has_permissions(administrator=True)
+# @app_commands.checks.has_permissions(administrator=True)
 async def backup(interaction: discord.Interaction):
     """Send a backup of the data.json file in the backup channel"""
     
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
-        logger.warning(f"User {interaction.user} attempted to use backup command without admin permissions")
-        return
+    # if not interaction.user.guild_permissions.administrator:
+    #     await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+    #     logger.warning(f"User {interaction.user} attempted to use backup command without admin permissions")
+    #     return
 
     await interaction.response.defer(ephemeral=True)
 
@@ -197,6 +200,80 @@ async def backup(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send("An unexpected error occurred while creating the backup.", ephemeral=True)
         logger.error(f"Unexpected error during backup attempt: {str(e)}")
+
+
+@bot.tree.command()
+@app_commands.checks.has_permissions(administrator=True)
+async def restore_backup(interaction: discord.Interaction):
+    """Restore data from found and graved channels"""
+    
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+        logger.warning(f"User {interaction.user} attempted to use restore_backup command without admin permissions")
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        found_channel = interaction.guild.get_channel(1287810208646824057)
+        graved_channel = interaction.guild.get_channel(1287736015963820113)
+
+        if not found_channel or not graved_channel:
+            raise ValueError("Found or graved channel not found")
+
+        data = {
+            "NUMBER": 0,
+            "GRAVED": [],
+            "FOUND": []
+        }
+
+        # Process found messages
+        async for message in found_channel.history(limit=None):
+            match = re.search(r'knife number (?:\*\*)?(\d+)(?:\*\*)? found', message.content)
+            if match:
+                knife_number = int(match.group(1))
+                data["FOUND"].append({
+                    "user_id": message.author.id,
+                    "knife_found": knife_number,
+                    "timestamp": message.created_at.isoformat()
+                })
+                data["NUMBER"] = max(data["NUMBER"], knife_number)
+
+        # Process graved messages
+        async for message in graved_channel.history(limit=None):
+            match = re.search(r'knife number (?:is now |now )?\*\*(\d+)\*\*', message.content)
+            if match:
+                knife_number = int(match.group(1))
+                data["GRAVED"].append({
+                    "user_id": message.author.id,
+                    "knife_graved": knife_number,
+                    "timestamp": message.created_at.isoformat()
+                })
+                data["NUMBER"] = max(data["NUMBER"], knife_number)
+
+        # Sort logs by timestamp
+        data["FOUND"].sort(key=lambda x: x["timestamp"])
+        data["GRAVED"].sort(key=lambda x: x["timestamp"])
+
+        # Save to data.json
+        with open(data_path, 'w') as f:
+            json.dump(data, f, indent=4)
+
+        # Update global variables
+        global KNIFE_NUMBER, GRAVED_LOGS, FOUND_LOGS
+        KNIFE_NUMBER = data["NUMBER"]
+        GRAVED_LOGS = data["GRAVED"]
+        FOUND_LOGS = data["FOUND"]
+
+        await interaction.followup.send("Backup successfully restored from channel messages.", ephemeral=True)
+        logger.info(f"Backup restored by {interaction.user}")
+
+    except ValueError as e:
+        await interaction.followup.send(f"Error: {str(e)}", ephemeral=True)
+        logger.error(f"ValueError during restore attempt: {str(e)}")
+    except Exception as e:
+        await interaction.followup.send("An unexpected error occurred while restoring the backup.", ephemeral=True)
+        logger.error(f"Unexpected error during restore attempt: {str(e)}")
 
 
 @bot.event
