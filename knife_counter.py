@@ -99,14 +99,15 @@ async def graved(interaction: discord.Interaction):
     else:
         logger.warning(f"User {interaction.user} doesn't send the command in the right channel")
         await interaction.response.send_message(f"You don't send your command in the right channel, the right channel is <#{GRAVED_CHANNEL_ID}>",ephemeral=True)
-
+    await backup()
 
 @bot.tree.command()
 async def found(interaction: discord.Interaction, number: int):
     """Announce that you found a knife"""
     global KNIFE_NUMBER
     global FOUND_LOGS
-    
+
+
     if (0 >= number) or (number > KNIFE_NUMBER):
         logger.warning(f"Number of knives found ({number}) is greater than the number of knives graved ({KNIFE_NUMBER}).")
         await interaction.response.send_message("Invalid knife number.", ephemeral=True)
@@ -134,7 +135,7 @@ async def found(interaction: discord.Interaction, number: int):
     else:
         logger.warning(f"User {interaction.user} doesn't send the command in the right channel")
         await interaction.response.send_message(f"You don't send your command in the right channel, the right channel is <#{FOUND_CHANNEL_ID}>",ephemeral=True)
-    await backup(interaction)
+    await backup()
 
 @bot.tree.command()
 @app_commands.checks.has_permissions(manage_messages=True)
@@ -155,20 +156,12 @@ async def clear(interaction: discord.Interaction, amount: int = None):
     except Exception as e:
         logger.error(f"Error in clear command: {str(e)}")
         await interaction.followup.send("An error occurred while trying to clear messages.", ephemeral=True)
-    await backup(interaction)
 
 
-@bot.tree.command()
-# @app_commands.checks.has_permissions(administrator=True)
-async def backup(interaction: discord.Interaction):
+
+
+async def backup():
     """Send a backup of the data.json file in the backup channel"""
-    
-    # if not interaction.user.guild_permissions.administrator:
-    #     await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
-    #     logger.warning(f"User {interaction.user} attempted to use backup command without admin permissions")
-    #     return
-
-    await interaction.response.defer(ephemeral=True)
 
     try:
         data = {
@@ -186,94 +179,91 @@ async def backup(interaction: discord.Interaction):
         if backup_channel is None:
             raise ValueError("Backup channel not found")
         
-        await backup_channel.send("Data backup:", file=file)
-        await interaction.followup.send("Backup successfully sent to the backup channel.", ephemeral=True)
-        
-        logger.info(f"Backup created and sent by {interaction.user}")
-        
+        message_timestamp = datetime.now(timezone.utc).isoformat()
+
+        await backup_channel.send(f"Data backup from {message_timestamp}", file=file,silent=True)
+        logger.info("Backup created and sent automatically")
+
     except FileNotFoundError:
-        await interaction.followup.send("Error: data.json file not found.", ephemeral=True)
         logger.error("data.json file not found during backup attempt")
     except ValueError as e:
-        await interaction.followup.send(f"Error: {str(e)}", ephemeral=True)
         logger.error(f"ValueError during backup attempt: {str(e)}")
     except Exception as e:
-        await interaction.followup.send("An unexpected error occurred while creating the backup.", ephemeral=True)
         logger.error(f"Unexpected error during backup attempt: {str(e)}")
 
 
-@bot.tree.command()
-@app_commands.checks.has_permissions(administrator=True)
-async def restore_backup(interaction: discord.Interaction):
-    """Restore data from found and graved channels"""
+# @bot.tree.command()
+# @app_commands.checks.has_permissions(administrator=True)
+# async def restore_backup(interaction: discord.Interaction):
+#     """Restore data from found and graved channels"""
     
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
-        logger.warning(f"User {interaction.user} attempted to use restore_backup command without admin permissions")
-        return
+#     if not interaction.user.guild_permissions.administrator:
+#         await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+#         logger.warning(f"User {interaction.user} attempted to use restore_backup command without admin permissions")
+#         return
 
-    await interaction.response.defer(ephemeral=True)
+#     await interaction.response.defer(ephemeral=True)
 
-    try:
-        found_channel = interaction.guild.get_channel(1287810208646824057)
-        graved_channel = interaction.guild.get_channel(1287736015963820113)
+#     try:
+#         found_channel = interaction.guild.get_channel(1287810208646824057)
+#         graved_channel = interaction.guild.get_channel(1287736015963820113)
 
-        if not found_channel or not graved_channel:
-            raise ValueError("Found or graved channel not found")
+#         if not found_channel or not graved_channel:
+#             raise ValueError("Found or graved channel not found")
 
-        data = {
-            "NUMBER": 0,
-            "GRAVED": [],
-            "FOUND": []
-        }
+#         data = {
+#             "NUMBER": 0,
+#             "GRAVED": [],
+#             "FOUND": []
+#         }
 
-        # Process found messages
-        async for message in found_channel.history(limit=None):
-            match = re.search(r'knife number (?:\*\*)?(\d+)(?:\*\*)? found', message.content)
-            if match:
-                knife_number = int(match.group(1))
-                data["FOUND"].append({
-                    "user_id": message.author.id,
-                    "knife_found": knife_number,
-                    "timestamp": message.created_at.isoformat()
-                })
-                data["NUMBER"] = max(data["NUMBER"], knife_number)
+#         # Process found messages
+#         async for message in found_channel.history(limit=None):
+#             match = re.search(r'knife number (?:\*\*)?(\d+)(?:\*\*)? found', message.content)
+#             if match:
+#                 knife_number = int(match.group(1))
+#                 data["FOUND"].append({
+#                     "user_id": message.author.id,
+#                     "knife_found": knife_number,
+#                     "timestamp": message.created_at.isoformat()
+#                 })
+#                 data["NUMBER"] = max(data["NUMBER"], knife_number)
 
-        # Process graved messages
-        async for message in graved_channel.history(limit=None):
-            match = re.search(r'knife number (?:is now |now )?\*\*(\d+)\*\*', message.content)
-            if match:
-                knife_number = int(match.group(1))
-                data["GRAVED"].append({
-                    "user_id": message.author.id,
-                    "knife_graved": knife_number,
-                    "timestamp": message.created_at.isoformat()
-                })
-                data["NUMBER"] = max(data["NUMBER"], knife_number)
+#         # Process graved messages
+#         async for message in graved_channel.history(limit=None):
+#             match = re.search(r'knife number (?:is now |now )?\*\*(\d+)\*\*', message.content)
+#             if match:
+#                 knife_number = int(match.group(1))
+#                 data["GRAVED"].append({
+#                     "user_id": message.author.id,
+#                     "knife_graved": knife_number,
+#                     "timestamp": message.created_at.isoformat()
+#                 })
+#                 data["NUMBER"] = max(data["NUMBER"], knife_number)
 
-        # Sort logs by timestamp
-        data["FOUND"].sort(key=lambda x: x["timestamp"])
-        data["GRAVED"].sort(key=lambda x: x["timestamp"])
+#         # Sort logs by timestamp
+#         data["FOUND"].sort(key=lambda x: x["timestamp"])
+#         data["GRAVED"].sort(key=lambda x: x["timestamp"])
 
-        # Save to data.json
-        with open(data_path, 'w') as f:
-            json.dump(data, f, indent=4)
+#         # Save to data.json
+#         with open(data_path, 'w') as f:
+#             json.dump(data, f, indent=4)
 
-        # Update global variables
-        global KNIFE_NUMBER, GRAVED_LOGS, FOUND_LOGS
-        KNIFE_NUMBER = data["NUMBER"]
-        GRAVED_LOGS = data["GRAVED"]
-        FOUND_LOGS = data["FOUND"]
+#         # Update global variables
+#         global KNIFE_NUMBER, GRAVED_LOGS, FOUND_LOGS
+#         KNIFE_NUMBER = data["NUMBER"]
+#         GRAVED_LOGS = data["GRAVED"]
+#         FOUND_LOGS = data["FOUND"]
 
-        await interaction.followup.send("Backup successfully restored from channel messages.", ephemeral=True)
-        logger.info(f"Backup restored by {interaction.user}")
+#         await interaction.followup.send("Backup successfully restored from channel messages.", ephemeral=True)
+#         logger.info(f"Backup restored by {interaction.user}")
 
-    except ValueError as e:
-        await interaction.followup.send(f"Error: {str(e)}", ephemeral=True)
-        logger.error(f"ValueError during restore attempt: {str(e)}")
-    except Exception as e:
-        await interaction.followup.send("An unexpected error occurred while restoring the backup.", ephemeral=True)
-        logger.error(f"Unexpected error during restore attempt: {str(e)}")
+#     except ValueError as e:
+#         await interaction.followup.send(f"Error: {str(e)}", ephemeral=True)
+#         logger.error(f"ValueError during restore attempt: {str(e)}")
+#     except Exception as e:
+#         await interaction.followup.send("An unexpected error occurred while restoring the backup.", ephemeral=True)
+#         logger.error(f"Unexpected error during restore attempt: {str(e)}")
 
 
 @bot.event
