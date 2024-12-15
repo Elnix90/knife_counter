@@ -25,5 +25,4 @@ def save_data(knives=None,graved=None,found=None):
     with open(data_path, "w") as f:
         json.dump(data, f, indent=4)
     
-    print("save_data : data saved successfully")
-save_data()
+    logger.info("save_data : data saved successfully")
