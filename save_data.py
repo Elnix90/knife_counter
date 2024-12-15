@@ -17,8 +17,10 @@ def save_data(knives=None,graved=None,found=None):
         data["NUMBER"] = knives
     if graved != None:
         data["GRAVED"] = graved
+        # data["GRAVED"].append(graved)
     if found != None:
         data["FOUND"] = found
+        # data["FOUND"].append(found)
 
     with open(data_path, "w") as f:
         json.dump(data, f, indent=4)
