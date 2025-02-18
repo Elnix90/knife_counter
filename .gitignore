@@ -3,3 +3,4 @@ DATA/__pycache__
 DATA/data.json
 __pycache__
 logging/
+.env

@@ -6,14 +6,22 @@ from discord import ui
 from save_data import save_data
 from DATA.CONSTANTS import *
 from init_logger import setup_logger
+from dotenv import load_dotenv,dotenv_values
+import os
 
 logger = setup_logger("knife_tracker")
 
-try:
-    from DATA.keys import BOT_TOKEN
-except ModuleNotFoundError:
-    logger.warning("Unable to load BOT_TOKEN")
-    BOT_TOKEN = input("Please enter your bot token: ")
+
+load_dotenv()
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+print(BOT_TOKEN)
+
+
+# try:
+#     from DATA.keys import BOT_TOKEN
+# except ModuleNotFoundError:
+#     logger.warning("Unable to load BOT_TOKEN")
+#     BOT_TOKEN = input("Please enter your bot token: ")
 
 class KnifeButtons(ui.View):
     def __init__(self):
@@ -27,19 +35,21 @@ class KnifeButtons(ui.View):
     async def found_button(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_modal(FoundKnifeModal())
 
-    @ui.button(label="Cancel last action", style=discord.ButtonStyle.danger)
-    async def undo_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.guild_permissions.administrator:
-            await undo_last_action(interaction)
-        else:
-            await interaction.response.send_message("You don't have permission to use this command", ephemeral=True)
-
 class FoundKnifeModal(ui.Modal, title="Find a knife"):
     knife_number = ui.TextInput(label="Knife number", placeholder="Enter the knife's found number:")
 
     async def on_submit(self, interaction: discord.Interaction):
         number = self.knife_number.value
         await found(interaction, number)
+
+
+@bot.command(name="cancel")
+async def cancel_command(ctx):
+    if ctx.author.guild_permissions.administrator:
+        await ctx.message.delete()
+        await undo_last_action(ctx)
+    else:
+        await ctx.message.delete()
 
 async def setup_interaction_message():
     channel = bot.get_channel(BUTTONS_CHANNEL_ID)
@@ -116,7 +126,7 @@ async def found(interaction: discord.Interaction, number):
         await interaction.response.send_message(f"You don't have permission to use this command. You can check with a <@&{TRUSTED_FOUNDER_ID}> if they can authorize you to find knives", ephemeral=True)
 
 
-async def undo_last_action(interaction: discord.Interaction):
+async def undo_last_action(ctx):
     global KNIFE_NUMBER, GRAVED_LOGS, FOUND_LOGS
     
     if GRAVED_LOGS and (not FOUND_LOGS or GRAVED_LOGS[-1]["timestamp"] > FOUND_LOGS[-1]["timestamp"]):
@@ -124,21 +134,21 @@ async def undo_last_action(interaction: discord.Interaction):
         KNIFE_NUMBER -= 1
         channel = bot.get_channel(GRAVED_CHANNEL_ID)
         action_type = "engraving"
+        knife_number = last_action["knife_graved"]
     elif FOUND_LOGS:
         last_action = FOUND_LOGS.pop()
         channel = bot.get_channel(FOUND_CHANNEL_ID)
         action_type = "finding"
+        knife_number = last_action["knife_found"]
     else:
-        await interaction.response.send_message("No action to undo.", ephemeral=True)
+        await ctx.send("No action to undo.", ephemeral=True)
         return
 
-    async for message in channel.history(limit=None):
-        if str(last_action["knife_graved" if action_type == "engraving" else "knife_found"]) in message.content:
-            await message.delete()
-            break
-
     save_data(knives=KNIFE_NUMBER, graved=GRAVED_LOGS, found=FOUND_LOGS)
-    await interaction.response.send_message(f"The last {action_type} action has been undone.", ephemeral=True)
+    
+    # Send message to the corresponding channel
+    await channel.send(f"{ctx.author.mention} cancelled the {action_type} of knife number **{knife_number}**!")
+    
     await backup()
 
 @bot.event
