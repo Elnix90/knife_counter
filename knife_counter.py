@@ -11,17 +11,9 @@ import os
 
 logger = setup_logger("knife_tracker")
 
-
 load_dotenv()
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 print(BOT_TOKEN)
-
-
-# try:
-#     from DATA.keys import BOT_TOKEN
-# except ModuleNotFoundError:
-#     logger.warning("Unable to load BOT_TOKEN")
-#     BOT_TOKEN = input("Please enter your bot token: ")
 
 class KnifeButtons(ui.View):
     def __init__(self):
@@ -43,6 +35,11 @@ class FoundKnifeModal(ui.Modal, title="Find a knife"):
         await found(interaction, number)
 
 
+@bot.tree.command(name="ping", description="Check if the bot is online")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message("Pong! 🏓 The bot is online.", ephemeral=True)
+
+
 @bot.command(name="cancel")
 async def cancel_command(ctx):
     if ctx.author.guild_permissions.administrator:
@@ -50,6 +47,8 @@ async def cancel_command(ctx):
         await undo_last_action(ctx)
     else:
         await ctx.message.delete()
+
+
 
 async def setup_interaction_message():
     channel = bot.get_channel(BUTTONS_CHANNEL_ID)
