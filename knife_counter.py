@@ -9,6 +9,23 @@ from init_logger import setup_logger
 from dotenv import load_dotenv,dotenv_values
 import os
 
+from flask import Flask
+from threading import Thread
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run():
+  app.run(host='0.0.0.0',port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+
 logger = setup_logger("knife_tracker")
 
 load_dotenv()
@@ -174,4 +191,5 @@ async def backup():
     except Exception as e:
         logger.error(f"Unexpected error during backup attempt: {str(e)}")
 
+keep_alive()
 bot.run(BOT_TOKEN)
