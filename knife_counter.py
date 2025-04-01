@@ -3,6 +3,7 @@ import json
 import discord
 from datetime import datetime, timezone
 from discord import ui
+from discord import app_commands
 from save_data import save_data
 from DATA.CONSTANTS import *
 from init_logger import setup_logger
@@ -30,7 +31,7 @@ logger = setup_logger("knife_tracker")
 
 load_dotenv()
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-print(BOT_TOKEN)
+ADMIN_ID = os.environ.get("ADMIN_ID")
 
 class KnifeButtons(ui.View):
     def __init__(self):
@@ -52,18 +53,91 @@ class FoundKnifeModal(ui.Modal, title="Find a knife"):
         await found(interaction, number)
 
 
+
+
+# Commands
+
 @bot.tree.command(name="ping", description="Check if the bot is online")
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message("Pong! 🏓 The bot is online.", ephemeral=True)
 
+@bot.tree.command(name="restore", description="Restore data from last backup (Admin only)")
+@app_commands.checks.has_permissions(administrator=True)
+async def restore(interaction: discord.Interaction):
+    """Restore data from the last backup file in the backup channel"""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Récupération du canal de backup
+        backup_channel = bot.get_channel(BACKUP_CHANNEL)
+        if not backup_channel:
+            raise ValueError("Canal de backup introuvable")
+        
+        # Recherche du dernier backup valide
+        backup_message = None
+        async for message in backup_channel.history(limit=100):
+            if message.attachments and message.attachments[0].filename.endswith('.json'):
+                backup_message = message
+                break
+        
+        if not backup_message:
+            await interaction.followup.send("Aucun backup trouvé dans l'historique", ephemeral=True)
+            return
+            
+        # Téléchargement du fichier
+        attachment = backup_message.attachments[0]
+        backup_data = await attachment.read()
+        
+        # Vérification du format
+        try:
+            data = json.loads(backup_data)
+            required_keys = {"NUMBER", "GRAVED", "FOUND"}
+            if not all(key in data for key in required_keys):
+                raise ValueError("Format de fichier invalide")
+        except json.JSONDecodeError:
+            raise ValueError("Fichier JSON corrompu")
+            
+        # Mise à jour des données
+        global KNIFE_NUMBER, GRAVED_LOGS, FOUND_LOGS
+        KNIFE_NUMBER = data["NUMBER"]
+        GRAVED_LOGS = data["GRAVED"]
+        FOUND_LOGS = data["FOUND"]
+        
+        # Sauvegarde locale
+        with open(data_path, "w") as f:
+            json.dump(data, f, indent=4)
+            
+        await interaction.followup.send(
+            f"✅ Données restaurées avec succès depuis le backup du {backup_message.created_at.strftime('%d/%m/%Y %H:%M:%S')}",
+            ephemeral=True
+        )
+        logger.info(f"Restauration effectuée par {interaction.user}")
 
-@bot.command(name="cancel")
-async def cancel_command(ctx):
-    if ctx.author.guild_permissions.administrator:
-        await ctx.message.delete()
-        await undo_last_action(ctx)
-    else:
-        await ctx.message.delete()
+    except Exception as e:
+        error_message = f"❌ Erreur lors de la restauration : {str(e)}"
+        await interaction.followup.send(error_message, ephemeral=True)
+        logger.error(f"Erreur restauration : {str(e)}")
+
+@bot.tree.command(name="stop")
+@app_commands.checks.has_permissions(administrator=True)
+async def stop_command(interaction: discord.Interaction):
+    await interaction.response.send_message("Arrêt du bot...", ephemeral=True)
+    logger.info(f"Le bot a été arrêté par {interaction.user}")
+    exit(0)
+
+@bot.tree.command(name="cancel")
+@app_commands.checks.has_permissions(administrator=True)
+async def cancel_command(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        await undo_last_action(interaction)
+        await interaction.followup.send("La dernière action a été annulée avec succès.", ephemeral=True)
+        logger.info(f"La dernière action a été annulée par {interaction.user}")
+    except Exception as e:
+        error_message = f"Une erreur est survenue lors de l'annulation : {str(e)}"
+        await interaction.followup.send(error_message, ephemeral=True)
+        logger.error(f"Erreur lors de l'annulation par {interaction.user}: {str(e)}")
 
 
 
@@ -166,6 +240,17 @@ async def undo_last_action(ctx):
     await channel.send(f"{ctx.author.mention} cancelled the {action_type} of knife number **{knife_number}**!")
     
     await backup()
+
+def isadmin(id):
+    if id == ADMIN_ID:
+        return True
+    return False
+
+
+@bot.event
+async def on_command_error(ctx, command):
+    logger.error(f"{ctx.author.id}( {ctx.author.name} ) used {command} : Command not found")
+
 
 @bot.event
 async def on_ready():
